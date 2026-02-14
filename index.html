@@ -14,16 +14,19 @@
   <style>
     body { font-family: system-ui, -apple-system, sans-serif; }
     .retro { font-family: 'Press Start 2P', cursive; }
-
-    /* Smooth scrolling */
     html { scroll-behavior: smooth; }
 
-    /* Fade animation */
     .fade-in { animation: fade .25s ease; }
     @keyframes fade { from {opacity:0} to {opacity:1} }
 
-    /* Prevent background scroll when modal open */
     .no-scroll { overflow: hidden; }
+
+    /* smoother scrolling on iOS inside modal */
+    #readerScroll { -webkit-overflow-scrolling: touch; }
+
+    /* iOS safe area */
+    .safe-bottom { padding-bottom: calc(1rem + env(safe-area-inset-bottom)); }
+    .safe-top { padding-top: calc(1rem + env(safe-area-inset-top)); }
   </style>
 </head>
 
@@ -42,39 +45,38 @@
 <!-- ARCHIVE GRID -->
 <main class="max-w-6xl mx-auto px-4 py-8">
 
-  <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
-    <script>
-      for (let i = 0; i < 100; i++) {
-        const num = String(i).padStart(2, '0');
-        document.write(`
-          <div onclick="openReader(${i})"
-               class="cursor-pointer bg-neutral-900 rounded-xl overflow-hidden hover:scale-105 transition">
-            <img src="https://github.com/ChatGPT-PythonCode/E0C0m1c/blob/main/img/comics/${num}.jpg"
-                 class="w-full aspect-[3/4] object-cover"
-                 loading="lazy" />
-          </div>
-        `);
-      }
-    </script>
+  <div id="status" class="text-center text-sm opacity-70 py-10">
+    Loading comics…
   </div>
+
+  <div id="grid" class="hidden grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4"></div>
 
 </main>
 
 <!-- READER MODAL -->
 <div id="reader" class="fixed inset-0 bg-black/95 hidden z-50 flex flex-col">
 
-  <div class="flex justify-between items-center p-4 border-b border-white/10">
+  <div class="flex justify-between items-center px-4 py-3 border-b border-white/10 safe-top">
     <button onclick="closeReader()" class="retro text-xs">Close</button>
-    <div id="pageCounter" class="retro text-xs"></div>
+    <div id="pageCounter" class="retro text-[10px] sm:text-xs text-right"></div>
   </div>
 
-  <div class="flex-1 flex items-center justify-center overflow-auto p-4">
-    <img id="readerImage" class="max-h-[90vh] w-auto fade-in" />
+  <!-- Scroll container -->
+  <div id="readerScroll" class="flex-1 overflow-auto p-3 sm:p-4">
+    <img id="readerImage"
+         class="w-full max-w-4xl mx-auto h-auto fade-in select-none"
+         alt="Comic page" />
   </div>
 
-  <div class="flex justify-between p-4 border-t border-white/10">
-    <button onclick="prevPage()" class="retro text-xs">Prev</button>
-    <button onclick="nextPage()" class="retro text-xs">Next</button>
+  <div class="flex justify-between gap-3 px-4 py-3 border-t border-white/10 safe-bottom">
+    <button id="prevBtn" onclick="prevPage()"
+            class="retro text-[10px] sm:text-xs bg-white/10 hover:bg-white/15 px-4 py-3 rounded-xl w-1/2">
+      Prev
+    </button>
+    <button id="nextBtn" onclick="nextPage()"
+            class="retro text-[10px] sm:text-xs bg-white/10 hover:bg-white/15 px-4 py-3 rounded-xl w-1/2">
+      Next
+    </button>
   </div>
 
 </div>
@@ -101,75 +103,226 @@
 </div>
 
 <script>
-  let current = 0;
+  // === CONFIG ===
+  const OWNER = "ChatGPT-PythonCode";
+  const REPO  = "E0C0m1c";
+  const BRANCH = "main";
+  const COMICS_PATH = "img/comics";
 
-  function openReader(i) {
-    current = i;
+  // GitHub API listing (so we ONLY show images that exist)
+  const API_URL = `https://api.github.com/repos/${OWNER}/${REPO}/contents/${COMICS_PATH}?ref=${BRANCH}`;
+
+  // Fallback base URL (only used if API listing fails)
+  const RAW_BASE_URL = `https://raw.githubusercontent.com/${OWNER}/${REPO}/refs/heads/${BRANCH}/${COMICS_PATH}/`;
+
+  let comics = [];           // [{name, url}]
+  let currentIndex = 0;
+
+  const statusEl = document.getElementById("status");
+  const gridEl = document.getElementById("grid");
+
+  function byNaturalName(a, b) {
+    // numeric-friendly filename sorting (001.jpg, 010.jpg, 100.jpg)
+    return a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: "base" });
+  }
+
+  async function loadComics() {
+    statusEl.classList.remove("hidden");
+    gridEl.classList.add("hidden");
+    statusEl.textContent = "Loading comics…";
+
+    try {
+      const res = await fetch(API_URL, { cache: "no-store" });
+      if (!res.ok) throw new Error(`GitHub API returned ${res.status}`);
+      const data = await res.json();
+
+      comics = data
+        .filter(x => x.type === "file" && /\.(jpe?g|png|webp|gif)$/i.test(x.name) && x.download_url)
+        .map(x => ({ name: x.name, url: x.download_url }))
+        .sort(byNaturalName);
+
+      if (!comics.length) {
+        statusEl.textContent = "No images found in img/comics.";
+        return;
+      }
+
+      renderGrid();
+      statusEl.classList.add("hidden");
+      gridEl.classList.remove("hidden");
+
+    } catch (err) {
+      console.warn("API listing failed; falling back to probing sequential files.", err);
+
+      // Fallback: probe 001..500 and keep the ones that exist.
+      // This still avoids showing missing images.
+      const max = 500;
+      const found = [];
+      const concurrency = 12;
+
+      async function exists(url) {
+        try {
+          // Some hosts may not support HEAD; try HEAD then GET.
+          let r = await fetch(url, { method: "HEAD" });
+          if (r.ok) return true;
+          r = await fetch(url, { method: "GET" });
+          return r.ok;
+        } catch {
+          return false;
+        }
+      }
+
+      const tasks = [];
+      for (let i = 1; i <= max; i++) {
+        const num = String(i).padStart(3, "0");
+        const url = `${RAW_BASE_URL}${num}.jpg`;
+        tasks.push({ name: `${num}.jpg`, url });
+      }
+
+      // Run in batches to avoid hammering the browser/network
+      for (let i = 0; i < tasks.length; i += concurrency) {
+        const batch = tasks.slice(i, i + concurrency);
+        const results = await Promise.all(batch.map(t => exists(t.url)));
+        results.forEach((ok, idx) => {
+          if (ok) found.push(batch[idx]);
+        });
+
+        // Light progress update
+        statusEl.textContent = `Scanning images… ${Math.min(i + concurrency, max)} / ${max}`;
+      }
+
+      comics = found.sort(byNaturalName);
+
+      if (!comics.length) {
+        statusEl.textContent = "Couldn't find any images to load.";
+        return;
+      }
+
+      renderGrid();
+      statusEl.classList.add("hidden");
+      gridEl.classList.remove("hidden");
+    }
+  }
+
+  function renderGrid() {
+    gridEl.innerHTML = "";
+
+    comics.forEach((comic, idx) => {
+      const card = document.createElement("button");
+      card.type = "button";
+      card.className =
+        "cursor-pointer bg-neutral-900 rounded-xl overflow-hidden hover:scale-105 transition focus:outline-none focus:ring-2 focus:ring-white/30";
+
+      card.addEventListener("click", () => openReader(idx));
+
+      const img = document.createElement("img");
+      img.src = comic.url;
+      img.loading = "lazy";
+      img.alt = comic.name;
+      img.className = "w-full aspect-[3/4] object-cover";
+
+      // If an image fails (rare, but just in case), remove it from the grid
+      img.onerror = () => card.remove();
+
+      card.appendChild(img);
+      gridEl.appendChild(card);
+    });
+  }
+
+  function openReader(idx) {
+    if (!comics.length) return;
+    currentIndex = Math.max(0, Math.min(idx, comics.length - 1));
     updateReader();
-    document.getElementById('reader').classList.remove('hidden');
-    document.body.classList.add('no-scroll');
+
+    document.getElementById("reader").classList.remove("hidden");
+    document.body.classList.add("no-scroll");
+
+    // Start at top each time for better mobile UX
+    document.getElementById("readerScroll").scrollTop = 0;
   }
 
   function closeReader() {
-    document.getElementById('reader').classList.add('hidden');
-    document.body.classList.remove('no-scroll');
+    document.getElementById("reader").classList.add("hidden");
+    document.body.classList.remove("no-scroll");
   }
 
   function updateReader() {
-    const num = String(current).padStart(2,'0');
-    document.getElementById('readerImage').src = `img/comics/${num}.jpg`;
-    document.getElementById('pageCounter').innerText = `${num} / 99`;
+    const comic = comics[currentIndex];
+    document.getElementById("readerImage").src = comic.url;
+    document.getElementById("pageCounter").innerText =
+      `${currentIndex + 1} / ${comics.length} • ${comic.name}`;
+
+    // Disable buttons at ends
+    const prevBtn = document.getElementById("prevBtn");
+    const nextBtn = document.getElementById("nextBtn");
+
+    const atStart = currentIndex === 0;
+    const atEnd = currentIndex === comics.length - 1;
+
+    prevBtn.classList.toggle("opacity-30", atStart);
+    prevBtn.classList.toggle("pointer-events-none", atStart);
+
+    nextBtn.classList.toggle("opacity-30", atEnd);
+    nextBtn.classList.toggle("pointer-events-none", atEnd);
   }
 
   function nextPage() {
-    if (current < 99) {
-      current++;
+    if (currentIndex < comics.length - 1) {
+      currentIndex++;
       updateReader();
+      document.getElementById("readerScroll").scrollTop = 0;
     }
   }
 
   function prevPage() {
-    if (current > 0) {
-      current--;
+    if (currentIndex > 0) {
+      currentIndex--;
       updateReader();
+      document.getElementById("readerScroll").scrollTop = 0;
     }
   }
 
-  // Keyboard arrows
-  document.addEventListener('keydown', e => {
-    if (!document.getElementById('reader').classList.contains('hidden')) {
-      if (e.key === 'ArrowRight') nextPage();
-      if (e.key === 'ArrowLeft') prevPage();
-    }
+  // Keyboard controls
+  document.addEventListener("keydown", e => {
+    const readerOpen = !document.getElementById("reader").classList.contains("hidden");
+    if (!readerOpen) return;
+
+    if (e.key === "ArrowRight") nextPage();
+    if (e.key === "ArrowLeft") prevPage();
+    if (e.key === "Escape") closeReader();
   });
 
-  // Swipe support
+  // Swipe support (mobile)
   let startX = 0;
-  document.getElementById('readerImage').addEventListener('touchstart', e => {
-    startX = e.touches[0].clientX;
-  });
+  const readerImage = document.getElementById("readerImage");
 
-  document.getElementById('readerImage').addEventListener('touchend', e => {
-    let diff = e.changedTouches[0].clientX - startX;
-    if (diff > 50) prevPage();
-    if (diff < -50) nextPage();
-  });
+  readerImage.addEventListener("touchstart", e => {
+    startX = e.touches[0].clientX;
+  }, { passive: true });
+
+  readerImage.addEventListener("touchend", e => {
+    const diff = e.changedTouches[0].clientX - startX;
+    if (diff > 60) prevPage();
+    if (diff < -60) nextPage();
+  }, { passive: true });
 
   // DISCLAIMER
   function openDisclaimer() {
-    document.getElementById('disclaimer').classList.remove('hidden');
-    document.body.classList.add('no-scroll');
+    document.getElementById("disclaimer").classList.remove("hidden");
+    document.body.classList.add("no-scroll");
   }
 
   function acceptDisclaimer() {
-    localStorage.setItem('discAccepted', 'true');
-    document.getElementById('disclaimer').classList.add('hidden');
-    document.body.classList.remove('no-scroll');
+    localStorage.setItem("discAccepted", "true");
+    document.getElementById("disclaimer").classList.add("hidden");
+    document.body.classList.remove("no-scroll");
   }
 
-  if (!localStorage.getItem('discAccepted')) {
+  if (!localStorage.getItem("discAccepted")) {
     openDisclaimer();
   }
+
+  // Kick off
+  loadComics();
 </script>
 
 </body>
