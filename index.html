@@ -27,6 +27,14 @@
     /* iOS safe area */
     .safe-bottom { padding-bottom: calc(1rem + env(safe-area-inset-bottom)); }
     .safe-top { padding-top: calc(1rem + env(safe-area-inset-top)); }
+
+    /* tiny shimmer placeholder */
+    .shimmer {
+      background: linear-gradient(90deg, rgba(255,255,255,.06), rgba(255,255,255,.12), rgba(255,255,255,.06));
+      background-size: 200% 100%;
+      animation: shimmer 1.2s infinite linear;
+    }
+    @keyframes shimmer { 0%{background-position:0% 0} 100%{background-position:-200% 0} }
   </style>
 </head>
 
@@ -63,9 +71,12 @@
 
   <!-- Scroll container -->
   <div id="readerScroll" class="flex-1 overflow-auto p-3 sm:p-4">
+    <div id="readerPlaceholder" class="max-w-4xl mx-auto w-full aspect-[3/4] rounded-xl shimmer"></div>
     <img id="readerImage"
-         class="w-full max-w-4xl mx-auto h-auto fade-in select-none"
-         alt="Comic page" />
+         class="hidden w-full max-w-4xl mx-auto h-auto fade-in select-none"
+         alt="Comic page"
+         decoding="async"
+         fetchpriority="high" />
   </div>
 
   <div class="flex justify-between gap-3 px-4 py-3 border-t border-white/10 safe-bottom">
@@ -112,8 +123,16 @@
   // GitHub API listing (so we ONLY show images that exist)
   const API_URL = `https://api.github.com/repos/${OWNER}/${REPO}/contents/${COMICS_PATH}?ref=${BRANCH}`;
 
+  // Faster CDN for GitHub repos (serves from edge cache)
+  // Example: https://cdn.jsdelivr.net/gh/OWNER/REPO@BRANCH/img/comics/001.jpg
+  const CDN_BASE_URL = `https://cdn.jsdelivr.net/gh/${OWNER}/${REPO}@${BRANCH}/${COMICS_PATH}/`;
+
   // Fallback base URL (only used if API listing fails)
   const RAW_BASE_URL = `https://raw.githubusercontent.com/${OWNER}/${REPO}/refs/heads/${BRANCH}/${COMICS_PATH}/`;
+
+  // Cache the file list so the page feels instant after first visit
+  const CACHE_KEY = "eo_guides_comics_v2";
+  const CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24h
 
   let comics = [];           // [{name, url}]
   let currentIndex = 0;
@@ -122,85 +141,147 @@
   const gridEl = document.getElementById("grid");
 
   function byNaturalName(a, b) {
-    // numeric-friendly filename sorting (001.jpg, 010.jpg, 100.jpg)
     return a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: "base" });
   }
 
-  async function loadComics() {
+  function setStatus(msg) {
     statusEl.classList.remove("hidden");
-    gridEl.classList.add("hidden");
-    statusEl.textContent = "Loading comics…";
+    statusEl.textContent = msg;
+  }
 
+  function showGrid() {
+    statusEl.classList.add("hidden");
+    gridEl.classList.remove("hidden");
+  }
+
+  function hideGrid() {
+    gridEl.classList.add("hidden");
+  }
+
+  function loadFromCache() {
+    try {
+      const raw = localStorage.getItem(CACHE_KEY);
+      if (!raw) return null;
+      const parsed = JSON.parse(raw);
+      if (!parsed || !Array.isArray(parsed.items) || typeof parsed.ts !== "number") return null;
+      if (Date.now() - parsed.ts > CACHE_TTL_MS) return null;
+      return parsed.items;
+    } catch {
+      return null;
+    }
+  }
+
+  function saveToCache(items) {
+    try {
+      localStorage.setItem(CACHE_KEY, JSON.stringify({ ts: Date.now(), items }));
+    } catch {}
+  }
+
+  function urlsFromName(name) {
+    // Use CDN for speed, with automatic fallback to raw if CDN has issues.
+    return {
+      cdn: `${CDN_BASE_URL}${encodeURIComponent(name)}`,
+      raw: `${RAW_BASE_URL}${encodeURIComponent(name)}`
+    };
+  }
+
+  async function loadComics() {
+    hideGrid();
+
+    // 1) Instant render from cache (if available)
+    const cached = loadFromCache();
+    if (cached && cached.length) {
+      comics = cached.sort(byNaturalName);
+      renderGrid();
+      showGrid();
+      setStatus("Refreshing…"); // mild hint while we refresh in background
+    } else {
+      setStatus("Loading comics…");
+    }
+
+    // 2) Try fresh file list from GitHub API
     try {
       const res = await fetch(API_URL, { cache: "no-store" });
       if (!res.ok) throw new Error(`GitHub API returned ${res.status}`);
       const data = await res.json();
 
-      comics = data
-        .filter(x => x.type === "file" && /\.(jpe?g|png|webp|gif)$/i.test(x.name) && x.download_url)
-        .map(x => ({ name: x.name, url: x.download_url }))
+      const fresh = data
+        .filter(x => x.type === "file" && /\.(jpe?g|png|webp|gif)$/i.test(x.name))
+        .map(x => ({ name: x.name, url: urlsFromName(x.name).cdn }))
         .sort(byNaturalName);
 
-      if (!comics.length) {
-        statusEl.textContent = "No images found in img/comics.";
+      if (!fresh.length) {
+        setStatus("No images found in img/comics.");
         return;
       }
 
-      renderGrid();
-      statusEl.classList.add("hidden");
-      gridEl.classList.remove("hidden");
+      // Only re-render if list differs (keeps things smooth)
+      const changed = JSON.stringify(fresh.map(x => x.name)) !== JSON.stringify(comics.map(x => x.name));
+      comics = fresh;
+      saveToCache(comics);
+
+      if (!cached || changed) {
+        renderGrid();
+        showGrid();
+      } else {
+        statusEl.classList.add("hidden");
+      }
+
+      return;
 
     } catch (err) {
-      console.warn("API listing failed; falling back to probing sequential files.", err);
-
-      // Fallback: probe 001..500 and keep the ones that exist.
-      // This still avoids showing missing images.
-      const max = 500;
-      const found = [];
-      const concurrency = 12;
-
-      async function exists(url) {
-        try {
-          // Some hosts may not support HEAD; try HEAD then GET.
-          let r = await fetch(url, { method: "HEAD" });
-          if (r.ok) return true;
-          r = await fetch(url, { method: "GET" });
-          return r.ok;
-        } catch {
-          return false;
-        }
-      }
-
-      const tasks = [];
-      for (let i = 1; i <= max; i++) {
-        const num = String(i).padStart(3, "0");
-        const url = `${RAW_BASE_URL}${num}.jpg`;
-        tasks.push({ name: `${num}.jpg`, url });
-      }
-
-      // Run in batches to avoid hammering the browser/network
-      for (let i = 0; i < tasks.length; i += concurrency) {
-        const batch = tasks.slice(i, i + concurrency);
-        const results = await Promise.all(batch.map(t => exists(t.url)));
-        results.forEach((ok, idx) => {
-          if (ok) found.push(batch[idx]);
-        });
-
-        // Light progress update
-        statusEl.textContent = `Scanning images… ${Math.min(i + concurrency, max)} / ${max}`;
-      }
-
-      comics = found.sort(byNaturalName);
-
-      if (!comics.length) {
-        statusEl.textContent = "Couldn't find any images to load.";
+      console.warn("GitHub API listing failed; falling back.", err);
+      if (comics.length) {
+        // We already rendered from cache; keep it and stop here.
+        statusEl.classList.add("hidden");
         return;
       }
-
-      renderGrid();
-      statusEl.classList.add("hidden");
-      gridEl.classList.remove("hidden");
     }
+
+    // 3) Fallback: probe sequential files (still avoids showing missing ones)
+    setStatus("Scanning images…");
+
+    const max = 500;
+    const found = [];
+    const concurrency = 12;
+
+    async function exists(url) {
+      try {
+        // jsDelivr supports HEAD; raw might not always; this keeps it robust
+        let r = await fetch(url, { method: "HEAD" });
+        if (r.ok) return true;
+        r = await fetch(url, { method: "GET" });
+        return r.ok;
+      } catch {
+        return false;
+      }
+    }
+
+    const tasks = [];
+    for (let i = 1; i <= max; i++) {
+      const num = String(i).padStart(3, "0");
+      const name = `${num}.jpg`;
+      tasks.push({ name, url: urlsFromName(name).cdn });
+    }
+
+    for (let i = 0; i < tasks.length; i += concurrency) {
+      const batch = tasks.slice(i, i + concurrency);
+      const results = await Promise.all(batch.map(t => exists(t.url)));
+      results.forEach((ok, idx) => { if (ok) found.push(batch[idx]); });
+
+      setStatus(`Scanning images… ${Math.min(i + concurrency, max)} / ${max}`);
+    }
+
+    comics = found.sort(byNaturalName);
+
+    if (!comics.length) {
+      setStatus("Couldn't find any images to load.");
+      return;
+    }
+
+    saveToCache(comics);
+    renderGrid();
+    showGrid();
   }
 
   function renderGrid() {
@@ -210,18 +291,31 @@
       const card = document.createElement("button");
       card.type = "button";
       card.className =
-        "cursor-pointer bg-neutral-900 rounded-xl overflow-hidden hover:scale-105 transition focus:outline-none focus:ring-2 focus:ring-white/30";
+        "relative cursor-pointer bg-neutral-900 rounded-xl overflow-hidden hover:scale-105 transition focus:outline-none focus:ring-2 focus:ring-white/30";
 
       card.addEventListener("click", () => openReader(idx));
+
+      // lightweight placeholder while image loads
+      const ph = document.createElement("div");
+      ph.className = "absolute inset-0 shimmer";
+      card.appendChild(ph);
 
       const img = document.createElement("img");
       img.src = comic.url;
       img.loading = "lazy";
+      img.decoding = "async";
+      img.fetchPriority = "low";
       img.alt = comic.name;
-      img.className = "w-full aspect-[3/4] object-cover";
+      img.className = "relative w-full aspect-[3/4] object-cover";
 
-      // If an image fails (rare, but just in case), remove it from the grid
-      img.onerror = () => card.remove();
+      // If CDN fails for any reason, fall back to raw URL
+      img.onerror = () => {
+        const fallback = urlsFromName(comic.name).raw;
+        if (img.src !== fallback) img.src = fallback;
+        else card.remove(); // if even raw fails, drop it
+      };
+
+      img.onload = () => ph.remove();
 
       card.appendChild(img);
       gridEl.appendChild(card);
@@ -235,8 +329,6 @@
 
     document.getElementById("reader").classList.remove("hidden");
     document.body.classList.add("no-scroll");
-
-    // Start at top each time for better mobile UX
     document.getElementById("readerScroll").scrollTop = 0;
   }
 
@@ -245,16 +337,58 @@
     document.body.classList.remove("no-scroll");
   }
 
+  // Preload next/prev so navigation feels instant
+  const preloadCache = new Map(); // url -> Image
+  function preload(url) {
+    if (!url || preloadCache.has(url)) return;
+    const im = new Image();
+    im.decoding = "async";
+    im.src = url;
+    preloadCache.set(url, im);
+
+    // simple cap to avoid unbounded memory
+    if (preloadCache.size > 12) {
+      const firstKey = preloadCache.keys().next().value;
+      preloadCache.delete(firstKey);
+    }
+  }
+
+  function preloadAround() {
+    if (!comics.length) return;
+    const prev = comics[currentIndex - 1]?.url;
+    const next = comics[currentIndex + 1]?.url;
+    preload(prev);
+    preload(next);
+  }
+
   function updateReader() {
     const comic = comics[currentIndex];
-    document.getElementById("readerImage").src = comic.url;
+
+    const img = document.getElementById("readerImage");
+    const ph  = document.getElementById("readerPlaceholder");
+
+    // show placeholder while new page loads
+    img.classList.add("hidden");
+    ph.classList.remove("hidden");
+
+    // Set source (CDN). If it fails, swap to raw.
+    img.onerror = () => {
+      const fallback = urlsFromName(comic.name).raw;
+      if (img.src !== fallback) img.src = fallback;
+    };
+
+    img.onload = () => {
+      ph.classList.add("hidden");
+      img.classList.remove("hidden");
+    };
+
+    img.src = comic.url;
+
     document.getElementById("pageCounter").innerText =
       `${currentIndex + 1} / ${comics.length} • ${comic.name}`;
 
-    // Disable buttons at ends
     const prevBtn = document.getElementById("prevBtn");
     const nextBtn = document.getElementById("nextBtn");
-
     const atStart = currentIndex === 0;
     const atEnd = currentIndex === comics.length - 1;
 
@@ -263,6 +397,8 @@
 
     nextBtn.classList.toggle("opacity-30", atEnd);
     nextBtn.classList.toggle("pointer-events-none", atEnd);
+
+    preloadAround();
   }
 
   function nextPage() {
