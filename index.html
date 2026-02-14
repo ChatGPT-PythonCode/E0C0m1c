@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>EOWeb Comics</title>
+  <title>Eo WebComics - EoGuides.com</title>
 
   <!-- Tailwind CDN -->
   <script src="https://cdn.tailwindcss.com"></script>
@@ -48,6 +48,24 @@
 
 <!-- ARCHIVE GRID -->
 <main class="max-w-6xl mx-auto px-4 py-8">
+
+  <!-- Tabs -->
+  <div class="flex items-center justify-between gap-3 mb-4">
+    <div class="inline-flex rounded-2xl bg-white/5 border border-white/10 p-1">
+      <button id="tabAll"
+              onclick="setTab('all')"
+              class="retro text-[10px] sm:text-xs px-4 py-2 rounded-xl transition">
+        All
+      </button>
+      <button id="tabNewest"
+              onclick="setTab('newest')"
+              class="retro text-[10px] sm:text-xs px-4 py-2 rounded-xl transition">
+        Newest
+      </button>
+    </div>
+
+    <div id="tabHint" class="text-xs opacity-70 hidden sm:block"></div>
+  </div>
 
   <div id="status" class="text-center text-sm opacity-70 py-10">
     Loading comics…
@@ -141,24 +159,24 @@
   const RAW_BASE_URL = `https://raw.githubusercontent.com/${OWNER}/${REPO}/refs/heads/${BRANCH}/${COMICS_PATH}/`;
 
   // Cache the file list so the page feels instant after first visit
-  const CACHE_KEY = "eo_guides_comics_v3";
+  const CACHE_KEY = "eo_guides_comics_v4";
   const CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24h
 
   // Shareable URL route:
   //   /imgurl/<filename>
-  // Example:
-  //   https://yoursite.com/imgurl/001.jpg
-  //
-  // NOTE: For this to work on direct load, your host must rewrite /imgurl/* to index.html (SPA routing).
-  // If you can't do rewrites, you can still share using the hash fallback:
-  //   https://yoursite.com/#/imgurl/001.jpg
   const SHARE_PREFIX = "imgurl";
 
-  let comics = [];           // [{name, url}]
+  let comics = [];                 // [{name, url}]
+  let indexByName = new Map();     // nameLower -> index
   let currentIndex = 0;
+
+  // Tabs
+  let currentTab = "all"; // "all" | "newest"
+  const NEWEST_COUNT = 5;
 
   const statusEl = document.getElementById("status");
   const gridEl = document.getElementById("grid");
+  const tabHintEl = document.getElementById("tabHint");
 
   function byNaturalName(a, b) {
     return a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: "base" });
@@ -204,23 +222,58 @@
     };
   }
 
-  // ---- Shareable URL helpers ----
+  function rebuildIndexMap() {
+    indexByName = new Map();
+    comics.forEach((c, i) => indexByName.set(c.name.toLowerCase(), i));
+  }
 
+  // ---- Tabs ----
+  function setTab(tab) {
+    currentTab = tab;
+    updateTabUI();
+    renderGrid();
+  }
+
+  function updateTabUI() {
+    const allBtn = document.getElementById("tabAll");
+    const newBtn = document.getElementById("tabNewest");
+
+    const active = "bg-white text-black";
+    const inactive = "bg-transparent text-white/80 hover:text-white hover:bg-white/10";
+
+    allBtn.className = `retro text-[10px] sm:text-xs px-4 py-2 rounded-xl transition ${currentTab === "all" ? active : inactive}`;
+    newBtn.className = `retro text-[10px] sm:text-xs px-4 py-2 rounded-xl transition ${currentTab === "newest" ? active : inactive}`;
+
+    if (currentTab === "newest") {
+      tabHintEl.textContent = `Showing newest ${Math.min(NEWEST_COUNT, comics.length)}`;
+      tabHintEl.classList.remove("hidden");
+    } else {
+      tabHintEl.textContent = "";
+      tabHintEl.classList.add("hidden");
+    }
+  }
+
+  function visibleIndices() {
+    if (currentTab !== "newest") return comics.map((_, i) => i);
+    const n = Math.min(NEWEST_COUNT, comics.length);
+    // "Newest" = highest numbered / last in sorted list; show newest first
+    const start = Math.max(0, comics.length - n);
+    const idxs = [];
+    for (let i = comics.length - 1; i >= start; i--) idxs.push(i);
+    return idxs;
+  }
+
+  // ---- Shareable URL helpers ----
   function baseDir() {
-    // Returns the directory path of the current URL (keeps GitHub Pages repo subdirectory).
-    // e.g. /repo/ or / if hosted at root.
     const path = location.pathname;
-    // If we are already in /.../imgurl/... treat base as everything before /imgurl/
     const marker = `/${SHARE_PREFIX}/`;
     if (path.includes(marker)) return path.split(marker)[0] + "/";
-    // If ends with .html, strip file. Otherwise strip last segment if it's not a directory.
     if (path.endsWith("/")) return path;
     const lastSlash = path.lastIndexOf("/");
     return path.slice(0, lastSlash + 1);
   }
 
   function makeSharePath(filename) {
-    // /<base>/imgurl/<filename>
     return baseDir() + SHARE_PREFIX + "/" + encodeURIComponent(filename);
   }
 
@@ -233,10 +286,6 @@
   }
 
   function parseFilenameFromUrl() {
-    // Try:
-    // 1) /.../imgurl/<filename>
-    // 2) ?img=<filename>
-    // 3) #/imgurl/<filename>
     const path = location.pathname;
     const marker = `/${SHARE_PREFIX}/`;
     if (path.includes(marker)) {
@@ -259,25 +308,20 @@
     const filename = comics[currentIndex]?.name;
     if (!filename) return;
 
-    // Prefer clean /imgurl/<file> path.
-    // If your host doesn't support rewrites, you can swap this to always use hash:
-    //   location.hash = `#/${SHARE_PREFIX}/${encodeURIComponent(filename)}`
     const newPath = makeSharePath(filename);
 
     try {
       if (replace) history.replaceState({ img: filename }, "", newPath);
       else history.pushState({ img: filename }, "", newPath);
     } catch {
-      // Fallback to hash-based routing (always works on static hosting)
       location.hash = `#/${SHARE_PREFIX}/${encodeURIComponent(filename)}`;
     }
 
-    // Update title a bit
     document.title = `EO Guides • ${filename}`;
   }
 
   function setUrlToHome(replace=false) {
-    const home = baseDir(); // directory (e.g. /repo/)
+    const home = baseDir();
     try {
       if (replace) history.replaceState({}, "", home);
       else history.pushState({}, "", home);
@@ -289,18 +333,21 @@
 
   function indexForFilename(filename) {
     if (!filename) return -1;
-    return comics.findIndex(c => c.name.toLowerCase() === filename.toLowerCase());
+    return indexByName.get(filename.toLowerCase()) ?? -1;
   }
 
   // ---- Load comics list + render ----
-
   async function loadComics() {
     hideGrid();
+
+    // Default tab selection (if someone opened a deep link, we still show tabs once loaded)
+    updateTabUI();
 
     // 1) Instant render from cache (if available)
     const cached = loadFromCache();
     if (cached && cached.length) {
       comics = cached.sort(byNaturalName);
+      rebuildIndexMap();
       renderGrid();
       showGrid();
       setStatus("Refreshing…");
@@ -326,7 +373,10 @@
 
       const changed = JSON.stringify(fresh.map(x => x.name)) !== JSON.stringify(comics.map(x => x.name));
       comics = fresh;
+      rebuildIndexMap();
       saveToCache(comics);
+
+      updateTabUI();
 
       if (!cached || changed) {
         renderGrid();
@@ -380,6 +430,8 @@
     }
 
     comics = found.sort(byNaturalName);
+    rebuildIndexMap();
+    updateTabUI();
 
     if (!comics.length) {
       setStatus("Couldn't find any images to load.");
@@ -395,17 +447,18 @@
   function renderGrid() {
     gridEl.innerHTML = "";
 
-    comics.forEach((comic, idx) => {
-      // Use <a> so users can right-click / long-press and copy the per-image URL.
+    const idxs = visibleIndices();
+    idxs.forEach((globalIdx) => {
+      const comic = comics[globalIdx];
+
       const link = document.createElement("a");
       link.href = makeSharePath(comic.name);
       link.className =
         "relative block cursor-pointer bg-neutral-900 rounded-xl overflow-hidden hover:scale-105 transition focus:outline-none focus:ring-2 focus:ring-white/30";
 
-      // Clicking uses the modal (SPA behavior)
       link.addEventListener("click", (e) => {
         e.preventDefault();
-        openReader(idx, false);
+        openReader(globalIdx, false);
       });
 
       const ph = document.createElement("div");
@@ -434,7 +487,6 @@
   }
 
   // ---- Reader modal ----
-
   function openReader(idx, push=true) {
     if (!comics.length) return;
     currentIndex = Math.max(0, Math.min(idx, comics.length - 1));
@@ -443,7 +495,6 @@
     document.body.classList.add("no-scroll");
     document.getElementById("readerScroll").scrollTop = 0;
 
-    // show native share button on supported devices
     document.getElementById("shareBtn").classList.toggle("hidden", !("share" in navigator));
 
     if (push) setUrlForCurrent(false);
@@ -511,7 +562,6 @@
     nextBtn.classList.toggle("pointer-events-none", atEnd);
 
     preloadAround();
-    // keep URL in sync (replace so back button works nicely)
     setUrlForCurrent(true);
   }
 
@@ -532,12 +582,9 @@
   }
 
   // ---- Sharing ----
-
   function currentShareUrl() {
     const filename = comics[currentIndex]?.name;
     if (!filename) return location.href;
-    // Prefer clean path, but provide hash fallback if needed.
-    // (You can swap to always use hash if your host doesn't rewrite /imgurl/*.)
     return makeShareUrl(filename);
   }
 
@@ -545,7 +592,6 @@
     const filename = comics[currentIndex]?.name;
     if (!filename) return;
 
-    // Try clean path; if copying fails due to routing concerns, use hash fallback.
     const url = currentShareUrl();
     const fallback = makeHashShareUrl(filename);
 
@@ -554,7 +600,6 @@
       flashCopy("Copied!");
     } catch {
       try {
-        // Older browsers
         const ta = document.createElement("textarea");
         ta.value = url;
         document.body.appendChild(ta);
@@ -563,7 +608,6 @@
         ta.remove();
         flashCopy("Copied!");
       } catch {
-        // Last resort
         prompt("Copy this link:", fallback);
       }
     }
@@ -595,7 +639,6 @@
     if (idx >= 0) {
       openReader(idx, false);
     } else {
-      // If filename isn't found, go back home
       setUrlToHome(true);
     }
   }
@@ -604,7 +647,6 @@
   window.addEventListener("popstate", () => {
     const filename = parseFilenameFromUrl();
     if (!filename) {
-      // Close modal if open
       if (!document.getElementById("reader").classList.contains("hidden")) {
         document.getElementById("reader").classList.add("hidden");
         document.body.classList.remove("no-scroll");
@@ -615,7 +657,6 @@
 
     const idx = indexForFilename(filename);
     if (idx >= 0) {
-      // Open (or update) reader without adding history entry
       document.getElementById("reader").classList.remove("hidden");
       document.body.classList.add("no-scroll");
       currentIndex = idx;
@@ -660,6 +701,7 @@
   }
 
   // Kick off
+  updateTabUI();
   loadComics();
 </script>
 
