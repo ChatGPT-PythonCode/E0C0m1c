@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Eo WebComics - EoGuides.com</title>
+  <title>EO Guides</title>
 
   <!-- Tailwind CDN -->
   <script src="https://cdn.tailwindcss.com"></script>
@@ -39,10 +39,17 @@
 <!-- HEADER -->
 <header class="sticky top-0 z-40 bg-black/80 backdrop-blur border-b border-white/10">
   <div class="max-w-6xl mx-auto px-4 py-4 flex justify-between items-center">
-    <h1 class="retro text-xs sm:text-sm tracking-widest">EO GUIDES</h1>
-    <button onclick="openDisclaimer()" class="text-xs opacity-70 hover:opacity-100">
-      Disclaimer
-    </button>
+    <h1 class="retro text-xs sm:text-sm tracking-widest">EO Webcomics - EoGuides.com</h1>
+    <div class="flex items-center gap-3">
+      <a href="mailto:info@endless-online.com"
+         class="text-xs opacity-70 hover:opacity-100"
+         aria-label="Contact us by email">
+        Contact
+      </a>
+      <button onclick="openDisclaimer()" class="text-xs opacity-70 hover:opacity-100">
+        Disclaimer
+      </button>
+    </div>
   </div>
 </header>
 
@@ -172,7 +179,7 @@
 
   // Tabs
   let currentTab = "all"; // "all" | "newest"
-  const NEWEST_COUNT = 5;
+  const NEWEST_COUNT = 10;
 
   const statusEl = document.getElementById("status");
   const gridEl = document.getElementById("grid");
@@ -447,6 +454,39 @@
   function renderGrid() {
     gridEl.innerHTML = "";
 
+    // Only load images when they get close to the viewport.
+    // This is stronger than loading="lazy" alone and helps a lot on mobile.
+    const BLANK = "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==";
+
+    // Reset old observer (tab switches re-render the grid)
+    if (window.__eoImgObserver) {
+      window.__eoImgObserver.disconnect();
+      window.__eoImgObserver = null;
+    }
+
+    const supportsIO = ("IntersectionObserver" in window);
+
+    if (supportsIO) {
+      window.__eoImgObserver = new IntersectionObserver((entries, obs) => {
+        for (const entry of entries) {
+          if (!entry.isIntersecting) continue;
+
+          const img = entry.target;
+          const realSrc = img.dataset.src;
+          if (realSrc) {
+            img.src = realSrc;
+            // keep dataset until load succeeds, so we can ignore the BLANK onload
+          }
+          obs.unobserve(img);
+        }
+      }, {
+        root: null,
+        // start loading slightly before the card enters view
+        rootMargin: "500px 0px",
+        threshold: 0.01
+      });
+    }
+
     const idxs = visibleIndices();
     idxs.forEach((globalIdx) => {
       const comic = comics[globalIdx];
@@ -466,23 +506,42 @@
       link.appendChild(ph);
 
       const img = document.createElement("img");
-      img.src = comic.url;
+      img.alt = comic.name;
+      img.className = "relative w-full aspect-[3/4] object-cover";
       img.loading = "lazy";
       img.decoding = "async";
       img.fetchPriority = "low";
-      img.alt = comic.name;
-      img.className = "relative w-full aspect-[3/4] object-cover";
+
+      // Start with a tiny blank image so nothing is fetched until we decide.
+      img.src = BLANK;
+      img.dataset.src = comic.url;
+
+      img.onload = () => {
+        // Ignore the blank image load; only remove shimmer once real image is in.
+        if (img.src === BLANK) return;
+        ph.remove();
+        img.removeAttribute("data-src");
+      };
 
       img.onerror = () => {
+        // If the CDN fails, fall back to raw URL.
+        // If raw fails too, remove the card.
+        if (img.src === BLANK) return;
+
         const fallback = urlsFromName(comic.name).raw;
         if (img.src !== fallback) img.src = fallback;
         else link.remove();
       };
 
-      img.onload = () => ph.remove();
-
       link.appendChild(img);
       gridEl.appendChild(link);
+
+      // Observe for in-view loading (or just load immediately if IO not supported)
+      if (supportsIO && window.__eoImgObserver) {
+        window.__eoImgObserver.observe(img);
+      } else {
+        img.src = comic.url;
+      }
     });
   }
 
