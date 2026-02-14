@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>EO Guides - Web Comics</title>
+  <title>EOWeb Comics</title>
 
   <!-- Tailwind CDN -->
   <script src="https://cdn.tailwindcss.com"></script>
@@ -20,15 +20,11 @@
     @keyframes fade { from {opacity:0} to {opacity:1} }
 
     .no-scroll { overflow: hidden; }
-
-    /* smoother scrolling on iOS inside modal */
     #readerScroll { -webkit-overflow-scrolling: touch; }
 
-    /* iOS safe area */
     .safe-bottom { padding-bottom: calc(1rem + env(safe-area-inset-bottom)); }
     .safe-top { padding-top: calc(1rem + env(safe-area-inset-top)); }
 
-    /* tiny shimmer placeholder */
     .shimmer {
       background: linear-gradient(90deg, rgba(255,255,255,.06), rgba(255,255,255,.12), rgba(255,255,255,.06));
       background-size: 200% 100%;
@@ -64,9 +60,24 @@
 <!-- READER MODAL -->
 <div id="reader" class="fixed inset-0 bg-black/95 hidden z-50 flex flex-col">
 
-  <div class="flex justify-between items-center px-4 py-3 border-b border-white/10 safe-top">
-    <button onclick="closeReader()" class="retro text-xs">Close</button>
-    <div id="pageCounter" class="retro text-[10px] sm:text-xs text-right"></div>
+  <div class="flex justify-between items-center px-4 py-3 border-b border-white/10 safe-top gap-3">
+    <button onclick="closeReader()" class="retro text-xs shrink-0">Close</button>
+
+    <div class="flex-1 min-w-0 text-right">
+      <div id="pageCounter" class="retro text-[10px] sm:text-xs truncate"></div>
+      <div class="mt-2 flex justify-end gap-2">
+        <button id="copyLinkBtn"
+                onclick="copyShareLink()"
+                class="retro text-[10px] sm:text-xs bg-white/10 hover:bg-white/15 px-3 py-2 rounded-xl">
+          Copy Link
+        </button>
+        <button id="shareBtn"
+                onclick="nativeShare()"
+                class="retro text-[10px] sm:text-xs bg-white text-black px-3 py-2 rounded-xl hidden">
+          Share
+        </button>
+      </div>
+    </div>
   </div>
 
   <!-- Scroll container -->
@@ -124,15 +135,24 @@
   const API_URL = `https://api.github.com/repos/${OWNER}/${REPO}/contents/${COMICS_PATH}?ref=${BRANCH}`;
 
   // Faster CDN for GitHub repos (serves from edge cache)
-  // Example: https://cdn.jsdelivr.net/gh/OWNER/REPO@BRANCH/img/comics/001.jpg
   const CDN_BASE_URL = `https://cdn.jsdelivr.net/gh/${OWNER}/${REPO}@${BRANCH}/${COMICS_PATH}/`;
 
   // Fallback base URL (only used if API listing fails)
   const RAW_BASE_URL = `https://raw.githubusercontent.com/${OWNER}/${REPO}/refs/heads/${BRANCH}/${COMICS_PATH}/`;
 
   // Cache the file list so the page feels instant after first visit
-  const CACHE_KEY = "eo_guides_comics_v2";
+  const CACHE_KEY = "eo_guides_comics_v3";
   const CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24h
+
+  // Shareable URL route:
+  //   /imgurl/<filename>
+  // Example:
+  //   https://yoursite.com/imgurl/001.jpg
+  //
+  // NOTE: For this to work on direct load, your host must rewrite /imgurl/* to index.html (SPA routing).
+  // If you can't do rewrites, you can still share using the hash fallback:
+  //   https://yoursite.com/#/imgurl/001.jpg
+  const SHARE_PREFIX = "imgurl";
 
   let comics = [];           // [{name, url}]
   let currentIndex = 0;
@@ -178,12 +198,101 @@
   }
 
   function urlsFromName(name) {
-    // Use CDN for speed, with automatic fallback to raw if CDN has issues.
     return {
       cdn: `${CDN_BASE_URL}${encodeURIComponent(name)}`,
       raw: `${RAW_BASE_URL}${encodeURIComponent(name)}`
     };
   }
+
+  // ---- Shareable URL helpers ----
+
+  function baseDir() {
+    // Returns the directory path of the current URL (keeps GitHub Pages repo subdirectory).
+    // e.g. /repo/ or / if hosted at root.
+    const path = location.pathname;
+    // If we are already in /.../imgurl/... treat base as everything before /imgurl/
+    const marker = `/${SHARE_PREFIX}/`;
+    if (path.includes(marker)) return path.split(marker)[0] + "/";
+    // If ends with .html, strip file. Otherwise strip last segment if it's not a directory.
+    if (path.endsWith("/")) return path;
+    const lastSlash = path.lastIndexOf("/");
+    return path.slice(0, lastSlash + 1);
+  }
+
+  function makeSharePath(filename) {
+    // /<base>/imgurl/<filename>
+    return baseDir() + SHARE_PREFIX + "/" + encodeURIComponent(filename);
+  }
+
+  function makeShareUrl(filename) {
+    return location.origin + makeSharePath(filename);
+  }
+
+  function makeHashShareUrl(filename) {
+    return location.origin + baseDir() + "#/" + SHARE_PREFIX + "/" + encodeURIComponent(filename);
+  }
+
+  function parseFilenameFromUrl() {
+    // Try:
+    // 1) /.../imgurl/<filename>
+    // 2) ?img=<filename>
+    // 3) #/imgurl/<filename>
+    const path = location.pathname;
+    const marker = `/${SHARE_PREFIX}/`;
+    if (path.includes(marker)) {
+      const part = path.split(marker)[1] || "";
+      if (part) return decodeURIComponent(part.split("/")[0]);
+    }
+
+    const u = new URL(location.href);
+    const img = u.searchParams.get("img");
+    if (img) return img;
+
+    const h = location.hash || "";
+    const hm = h.match(new RegExp(`#\/${SHARE_PREFIX}\/([^?#]+)`));
+    if (hm && hm[1]) return decodeURIComponent(hm[1]);
+
+    return null;
+  }
+
+  function setUrlForCurrent(replace=false) {
+    const filename = comics[currentIndex]?.name;
+    if (!filename) return;
+
+    // Prefer clean /imgurl/<file> path.
+    // If your host doesn't support rewrites, you can swap this to always use hash:
+    //   location.hash = `#/${SHARE_PREFIX}/${encodeURIComponent(filename)}`
+    const newPath = makeSharePath(filename);
+
+    try {
+      if (replace) history.replaceState({ img: filename }, "", newPath);
+      else history.pushState({ img: filename }, "", newPath);
+    } catch {
+      // Fallback to hash-based routing (always works on static hosting)
+      location.hash = `#/${SHARE_PREFIX}/${encodeURIComponent(filename)}`;
+    }
+
+    // Update title a bit
+    document.title = `EO Guides • ${filename}`;
+  }
+
+  function setUrlToHome(replace=false) {
+    const home = baseDir(); // directory (e.g. /repo/)
+    try {
+      if (replace) history.replaceState({}, "", home);
+      else history.pushState({}, "", home);
+    } catch {
+      location.hash = "";
+    }
+    document.title = "EO Guides";
+  }
+
+  function indexForFilename(filename) {
+    if (!filename) return -1;
+    return comics.findIndex(c => c.name.toLowerCase() === filename.toLowerCase());
+  }
+
+  // ---- Load comics list + render ----
 
   async function loadComics() {
     hideGrid();
@@ -194,7 +303,7 @@
       comics = cached.sort(byNaturalName);
       renderGrid();
       showGrid();
-      setStatus("Refreshing…"); // mild hint while we refresh in background
+      setStatus("Refreshing…");
     } else {
       setStatus("Loading comics…");
     }
@@ -215,7 +324,6 @@
         return;
       }
 
-      // Only re-render if list differs (keeps things smooth)
       const changed = JSON.stringify(fresh.map(x => x.name)) !== JSON.stringify(comics.map(x => x.name));
       comics = fresh;
       saveToCache(comics);
@@ -227,13 +335,14 @@
         statusEl.classList.add("hidden");
       }
 
+      maybeOpenFromUrl();
       return;
 
     } catch (err) {
       console.warn("GitHub API listing failed; falling back.", err);
       if (comics.length) {
-        // We already rendered from cache; keep it and stop here.
         statusEl.classList.add("hidden");
+        maybeOpenFromUrl();
         return;
       }
     }
@@ -247,7 +356,6 @@
 
     async function exists(url) {
       try {
-        // jsDelivr supports HEAD; raw might not always; this keeps it robust
         let r = await fetch(url, { method: "HEAD" });
         if (r.ok) return true;
         r = await fetch(url, { method: "GET" });
@@ -268,7 +376,6 @@
       const batch = tasks.slice(i, i + concurrency);
       const results = await Promise.all(batch.map(t => exists(t.url)));
       results.forEach((ok, idx) => { if (ok) found.push(batch[idx]); });
-
       setStatus(`Scanning images… ${Math.min(i + concurrency, max)} / ${max}`);
     }
 
@@ -282,23 +389,28 @@
     saveToCache(comics);
     renderGrid();
     showGrid();
+    maybeOpenFromUrl();
   }
 
   function renderGrid() {
     gridEl.innerHTML = "";
 
     comics.forEach((comic, idx) => {
-      const card = document.createElement("button");
-      card.type = "button";
-      card.className =
-        "relative cursor-pointer bg-neutral-900 rounded-xl overflow-hidden hover:scale-105 transition focus:outline-none focus:ring-2 focus:ring-white/30";
+      // Use <a> so users can right-click / long-press and copy the per-image URL.
+      const link = document.createElement("a");
+      link.href = makeSharePath(comic.name);
+      link.className =
+        "relative block cursor-pointer bg-neutral-900 rounded-xl overflow-hidden hover:scale-105 transition focus:outline-none focus:ring-2 focus:ring-white/30";
 
-      card.addEventListener("click", () => openReader(idx));
+      // Clicking uses the modal (SPA behavior)
+      link.addEventListener("click", (e) => {
+        e.preventDefault();
+        openReader(idx, false);
+      });
 
-      // lightweight placeholder while image loads
       const ph = document.createElement("div");
       ph.className = "absolute inset-0 shimmer";
-      card.appendChild(ph);
+      link.appendChild(ph);
 
       const img = document.createElement("img");
       img.src = comic.url;
@@ -308,45 +420,50 @@
       img.alt = comic.name;
       img.className = "relative w-full aspect-[3/4] object-cover";
 
-      // If CDN fails for any reason, fall back to raw URL
       img.onerror = () => {
         const fallback = urlsFromName(comic.name).raw;
         if (img.src !== fallback) img.src = fallback;
-        else card.remove(); // if even raw fails, drop it
+        else link.remove();
       };
 
       img.onload = () => ph.remove();
 
-      card.appendChild(img);
-      gridEl.appendChild(card);
+      link.appendChild(img);
+      gridEl.appendChild(link);
     });
   }
 
-  function openReader(idx) {
+  // ---- Reader modal ----
+
+  function openReader(idx, push=true) {
     if (!comics.length) return;
     currentIndex = Math.max(0, Math.min(idx, comics.length - 1));
     updateReader();
-
     document.getElementById("reader").classList.remove("hidden");
     document.body.classList.add("no-scroll");
     document.getElementById("readerScroll").scrollTop = 0;
+
+    // show native share button on supported devices
+    document.getElementById("shareBtn").classList.toggle("hidden", !("share" in navigator));
+
+    if (push) setUrlForCurrent(false);
+    else setUrlForCurrent(true);
   }
 
   function closeReader() {
     document.getElementById("reader").classList.add("hidden");
     document.body.classList.remove("no-scroll");
+    setUrlToHome(false);
   }
 
-  // Preload next/prev so navigation feels instant
-  const preloadCache = new Map(); // url -> Image
+  // Preload next/prev
+  const preloadCache = new Map();
   function preload(url) {
     if (!url || preloadCache.has(url)) return;
     const im = new Image();
     im.decoding = "async";
     im.src = url;
     preloadCache.set(url, im);
-
-    // simple cap to avoid unbounded memory
     if (preloadCache.size > 12) {
       const firstKey = preloadCache.keys().next().value;
       preloadCache.delete(firstKey);
@@ -354,24 +471,19 @@
   }
 
   function preloadAround() {
-    if (!comics.length) return;
     const prev = comics[currentIndex - 1]?.url;
     const next = comics[currentIndex + 1]?.url;
-    preload(prev);
-    preload(next);
+    preload(prev); preload(next);
   }
 
   function updateReader() {
     const comic = comics[currentIndex];
-
     const img = document.getElementById("readerImage");
     const ph  = document.getElementById("readerPlaceholder");
 
-    // show placeholder while new page loads
     img.classList.add("hidden");
     ph.classList.remove("hidden");
 
-    // Set source (CDN). If it fails, swap to raw.
     img.onerror = () => {
       const fallback = urlsFromName(comic.name).raw;
       if (img.src !== fallback) img.src = fallback;
@@ -399,6 +511,8 @@
     nextBtn.classList.toggle("pointer-events-none", atEnd);
 
     preloadAround();
+    // keep URL in sync (replace so back button works nicely)
+    setUrlForCurrent(true);
   }
 
   function nextPage() {
@@ -417,6 +531,98 @@
     }
   }
 
+  // ---- Sharing ----
+
+  function currentShareUrl() {
+    const filename = comics[currentIndex]?.name;
+    if (!filename) return location.href;
+    // Prefer clean path, but provide hash fallback if needed.
+    // (You can swap to always use hash if your host doesn't rewrite /imgurl/*.)
+    return makeShareUrl(filename);
+  }
+
+  async function copyShareLink() {
+    const filename = comics[currentIndex]?.name;
+    if (!filename) return;
+
+    // Try clean path; if copying fails due to routing concerns, use hash fallback.
+    const url = currentShareUrl();
+    const fallback = makeHashShareUrl(filename);
+
+    try {
+      await navigator.clipboard.writeText(url);
+      flashCopy("Copied!");
+    } catch {
+      try {
+        // Older browsers
+        const ta = document.createElement("textarea");
+        ta.value = url;
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand("copy");
+        ta.remove();
+        flashCopy("Copied!");
+      } catch {
+        // Last resort
+        prompt("Copy this link:", fallback);
+      }
+    }
+  }
+
+  function flashCopy(text) {
+    const btn = document.getElementById("copyLinkBtn");
+    const old = btn.textContent;
+    btn.textContent = text;
+    setTimeout(() => btn.textContent = old, 900);
+  }
+
+  async function nativeShare() {
+    const filename = comics[currentIndex]?.name;
+    if (!filename) return;
+    const url = currentShareUrl();
+
+    try {
+      await navigator.share({ title: `EO Guides • ${filename}`, url });
+    } catch {}
+  }
+
+  // ---- Deep link open ----
+  function maybeOpenFromUrl() {
+    const filename = parseFilenameFromUrl();
+    if (!filename) return;
+
+    const idx = indexForFilename(filename);
+    if (idx >= 0) {
+      openReader(idx, false);
+    } else {
+      // If filename isn't found, go back home
+      setUrlToHome(true);
+    }
+  }
+
+  // Back/forward should update modal state
+  window.addEventListener("popstate", () => {
+    const filename = parseFilenameFromUrl();
+    if (!filename) {
+      // Close modal if open
+      if (!document.getElementById("reader").classList.contains("hidden")) {
+        document.getElementById("reader").classList.add("hidden");
+        document.body.classList.remove("no-scroll");
+        document.title = "EO Guides";
+      }
+      return;
+    }
+
+    const idx = indexForFilename(filename);
+    if (idx >= 0) {
+      // Open (or update) reader without adding history entry
+      document.getElementById("reader").classList.remove("hidden");
+      document.body.classList.add("no-scroll");
+      currentIndex = idx;
+      updateReader();
+    }
+  });
+
   // Keyboard controls
   document.addEventListener("keydown", e => {
     const readerOpen = !document.getElementById("reader").classList.contains("hidden");
@@ -427,14 +633,10 @@
     if (e.key === "Escape") closeReader();
   });
 
-  // Swipe support (mobile)
+  // Swipe support
   let startX = 0;
   const readerImage = document.getElementById("readerImage");
-
-  readerImage.addEventListener("touchstart", e => {
-    startX = e.touches[0].clientX;
-  }, { passive: true });
-
+  readerImage.addEventListener("touchstart", e => { startX = e.touches[0].clientX; }, { passive: true });
   readerImage.addEventListener("touchend", e => {
     const diff = e.changedTouches[0].clientX - startX;
     if (diff > 60) prevPage();
