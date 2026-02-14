@@ -1,16 +1,176 @@
-<!doctype html>
-<html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="theme-color" content="#0b0b0f" />
-    <title>eoguides.com — EOComics</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
-  </head>
-  <body>
-    <div id="root"></div>
-    <script type="module" src="https://raw.githubusercontent.com/ChatGPT-PythonCode/E0C0m1c/refs/heads/main/src/main.jsx"></script>
-  </body>
+<!DOCTYPE html>
+<html lang="en" class="bg-black">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>EO Guides</title>
+
+  <!-- Tailwind CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+
+  <!-- Retro Font -->
+  <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+
+  <style>
+    body { font-family: system-ui, -apple-system, sans-serif; }
+    .retro { font-family: 'Press Start 2P', cursive; }
+
+    /* Smooth scrolling */
+    html { scroll-behavior: smooth; }
+
+    /* Fade animation */
+    .fade-in { animation: fade .25s ease; }
+    @keyframes fade { from {opacity:0} to {opacity:1} }
+
+    /* Prevent background scroll when modal open */
+    .no-scroll { overflow: hidden; }
+  </style>
+</head>
+
+<body class="bg-black text-white">
+
+<!-- HEADER -->
+<header class="sticky top-0 z-40 bg-black/80 backdrop-blur border-b border-white/10">
+  <div class="max-w-6xl mx-auto px-4 py-4 flex justify-between items-center">
+    <h1 class="retro text-xs sm:text-sm tracking-widest">EO GUIDES</h1>
+    <button onclick="openDisclaimer()" class="text-xs opacity-70 hover:opacity-100">
+      Disclaimer
+    </button>
+  </div>
+</header>
+
+<!-- ARCHIVE GRID -->
+<main class="max-w-6xl mx-auto px-4 py-8">
+
+  <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
+    <script>
+      for (let i = 0; i < 100; i++) {
+        const num = String(i).padStart(2, '0');
+        document.write(`
+          <div onclick="openReader(${i})"
+               class="cursor-pointer bg-neutral-900 rounded-xl overflow-hidden hover:scale-105 transition">
+            <img src="img/comics/${num}.jpg"
+                 class="w-full aspect-[3/4] object-cover"
+                 loading="lazy" />
+          </div>
+        `);
+      }
+    </script>
+  </div>
+
+</main>
+
+<!-- READER MODAL -->
+<div id="reader" class="fixed inset-0 bg-black/95 hidden z-50 flex flex-col">
+
+  <div class="flex justify-between items-center p-4 border-b border-white/10">
+    <button onclick="closeReader()" class="retro text-xs">Close</button>
+    <div id="pageCounter" class="retro text-xs"></div>
+  </div>
+
+  <div class="flex-1 flex items-center justify-center overflow-auto p-4">
+    <img id="readerImage" class="max-h-[90vh] w-auto fade-in" />
+  </div>
+
+  <div class="flex justify-between p-4 border-t border-white/10">
+    <button onclick="prevPage()" class="retro text-xs">Prev</button>
+    <button onclick="nextPage()" class="retro text-xs">Next</button>
+  </div>
+
+</div>
+
+<!-- DISCLAIMER MODAL -->
+<div id="disclaimer"
+     class="fixed inset-0 bg-black/90 hidden z-50 flex items-center justify-center p-6">
+
+  <div class="bg-neutral-900 rounded-2xl p-6 max-w-xl w-full border border-white/10">
+    <h2 class="retro text-xs mb-4">Viewer Discretion Advised</h2>
+
+    <p class="text-sm leading-relaxed opacity-80">
+      This website contains crude humor, retro nonsense, and satire.
+      All characters and events are fictional. Even the ones that seem real.
+    </p>
+
+    <div class="mt-6 text-right">
+      <button onclick="acceptDisclaimer()"
+              class="retro text-xs bg-white text-black px-4 py-2 rounded-lg">
+        I Understand
+      </button>
+    </div>
+  </div>
+</div>
+
+<script>
+  let current = 0;
+
+  function openReader(i) {
+    current = i;
+    updateReader();
+    document.getElementById('reader').classList.remove('hidden');
+    document.body.classList.add('no-scroll');
+  }
+
+  function closeReader() {
+    document.getElementById('reader').classList.add('hidden');
+    document.body.classList.remove('no-scroll');
+  }
+
+  function updateReader() {
+    const num = String(current).padStart(2,'0');
+    document.getElementById('readerImage').src = `img/comics/${num}.jpg`;
+    document.getElementById('pageCounter').innerText = `${num} / 99`;
+  }
+
+  function nextPage() {
+    if (current < 99) {
+      current++;
+      updateReader();
+    }
+  }
+
+  function prevPage() {
+    if (current > 0) {
+      current--;
+      updateReader();
+    }
+  }
+
+  // Keyboard arrows
+  document.addEventListener('keydown', e => {
+    if (!document.getElementById('reader').classList.contains('hidden')) {
+      if (e.key === 'ArrowRight') nextPage();
+      if (e.key === 'ArrowLeft') prevPage();
+    }
+  });
+
+  // Swipe support
+  let startX = 0;
+  document.getElementById('readerImage').addEventListener('touchstart', e => {
+    startX = e.touches[0].clientX;
+  });
+
+  document.getElementById('readerImage').addEventListener('touchend', e => {
+    let diff = e.changedTouches[0].clientX - startX;
+    if (diff > 50) prevPage();
+    if (diff < -50) nextPage();
+  });
+
+  // DISCLAIMER
+  function openDisclaimer() {
+    document.getElementById('disclaimer').classList.remove('hidden');
+    document.body.classList.add('no-scroll');
+  }
+
+  function acceptDisclaimer() {
+    localStorage.setItem('discAccepted', 'true');
+    document.getElementById('disclaimer').classList.add('hidden');
+    document.body.classList.remove('no-scroll');
+  }
+
+  if (!localStorage.getItem('discAccepted')) {
+    openDisclaimer();
+  }
+</script>
+
+</body>
 </html>
