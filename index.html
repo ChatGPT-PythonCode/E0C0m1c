@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>EO WebComics - EoGuides.com</title>
+  <title>EOComics - EOGuides.com</title>
 
   <!-- Tailwind CDN -->
   <script src="https://cdn.tailwindcss.com"></script>
@@ -39,7 +39,7 @@
 <!-- HEADER -->
 <header class="sticky top-0 z-40 bg-black/80 backdrop-blur border-b border-white/10">
   <div class="max-w-6xl mx-auto px-4 py-4 flex justify-between items-center">
-    <h1 class="retro text-xs sm:text-sm tracking-widest">EO GUIDES</h1>
+    <h1 class="retro text-xs sm:text-sm tracking-widest">EO Webcomics - EoGuides.com</h1>
     <div class="flex items-center gap-3">
       <a href="mailto:info@endless-online.com"
          class="text-xs opacity-70 hover:opacity-100"
@@ -169,13 +169,9 @@
   const CACHE_KEY = "eo_guides_comics_v4";
   const CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24h
 
-  // Public image URL path (what gets copied/shared)
-// Example: https://eoguides.com/img/comics/001.jpg
-const PUBLIC_IMG_PATH = "/img/comics/";
-
-// Deep-link into the viewer uses a query param (avoids 404 on refresh)
-// Example: https://eoguides.com/?img=001.jpg
-const VIEWER_PARAM = "img";
+  // Shareable URL route:
+  //   /imgurl/<filename>
+  const SHARE_PREFIX = "/img/comics";
 
   let comics = [];                 // [{name, url}]
   let indexByName = new Map();     // nameLower -> index
@@ -183,7 +179,7 @@ const VIEWER_PARAM = "img";
 
   // Tabs
   let currentTab = "all"; // "all" | "newest"
-  const NEWEST_COUNT = 5;
+  const NEWEST_COUNT = 10;
 
   const statusEl = document.getElementById("status");
   const gridEl = document.getElementById("grid");
@@ -276,46 +272,40 @@ const VIEWER_PARAM = "img";
 
   // ---- Shareable URL helpers ----
   function baseDir() {
-    // Directory of the current site (supports subdirectory hosting)
     const path = location.pathname;
-    if (path.endsWith('/')) return path;
-    const lastSlash = path.lastIndexOf('/');
+    const marker = `/${SHARE_PREFIX}/`;
+    if (path.includes(marker)) return path.split(marker)[0] + "/";
+    if (path.endsWith("/")) return path;
+    const lastSlash = path.lastIndexOf("/");
     return path.slice(0, lastSlash + 1);
   }
 
-  function imagePath(filename) {
-    // Always share the direct image URL at /img/comics/<filename>
-    return PUBLIC_IMG_PATH + encodeURIComponent(filename);
-  }
-
-  function imageUrl(filename) {
-    // location.origin may be "null" for file://; fall back to relative path.
-    if (!location.origin || location.origin === 'null') return imagePath(filename);
-    return location.origin + imagePath(filename);
-  }
-
   function makeSharePath(filename) {
-    return imagePath(filename);
+    return baseDir() + SHARE_PREFIX + "/" + encodeURIComponent(filename);
   }
 
   function makeShareUrl(filename) {
-    return imageUrl(filename);
+    return location.origin + makeSharePath(filename);
   }
 
   function makeHashShareUrl(filename) {
-    // Hash fallback for the viewer page (not the image).
-    return location.origin + baseDir() + `#/?${VIEWER_PARAM}=` + encodeURIComponent(filename);
+    return location.origin + baseDir() + "#/" + SHARE_PREFIX + "/" + encodeURIComponent(filename);
   }
 
   function parseFilenameFromUrl() {
-    // Supported deep link: ?img=<filename>
+    const path = location.pathname;
+    const marker = `/${SHARE_PREFIX}/`;
+    if (path.includes(marker)) {
+      const part = path.split(marker)[1] || "";
+      if (part) return decodeURIComponent(part.split("/")[0]);
+    }
+
     const u = new URL(location.href);
-    const img = u.searchParams.get(VIEWER_PARAM);
+    const img = u.searchParams.get("img");
     if (img) return img;
 
-    // Optional hash fallback: #/?img=001.jpg
     const h = location.hash || "";
-    const hm = h.match(new RegExp(`#\/\?${VIEWER_PARAM}=([^&#]+)`));
+    const hm = h.match(new RegExp(`#\/${SHARE_PREFIX}\/([^?#]+)`));
     if (hm && hm[1]) return decodeURIComponent(hm[1]);
 
     return null;
@@ -325,14 +315,15 @@ const VIEWER_PARAM = "img";
     const filename = comics[currentIndex]?.name;
     if (!filename) return;
 
-    const home = baseDir();
-    const newUrl = home + `?${VIEWER_PARAM}=` + encodeURIComponent(filename);
+    const newPath = makeSharePath(filename);
+
     try {
-      if (replace) history.replaceState({ img: filename }, "", newUrl);
-      else history.pushState({ img: filename }, "", newUrl);
+      if (replace) history.replaceState({ img: filename }, "", newPath);
+      else history.pushState({ img: filename }, "", newPath);
     } catch {
-      location.hash = `#/?${VIEWER_PARAM}=` + encodeURIComponent(filename);
+      location.hash = `#/${SHARE_PREFIX}/${encodeURIComponent(filename)}`;
     }
+
     document.title = `EO Guides • ${filename}`;
   }
 
@@ -344,8 +335,6 @@ const VIEWER_PARAM = "img";
     } catch {
       location.hash = "";
     }
-    document.title = "EO Guides";
-  }
     document.title = "EO Guides";
   }
 
@@ -503,7 +492,7 @@ const VIEWER_PARAM = "img";
       const comic = comics[globalIdx];
 
       const link = document.createElement("a");
-      link.href = imagePath(comic.name);
+      link.href = makeSharePath(comic.name);
       link.className =
         "relative block cursor-pointer bg-neutral-900 rounded-xl overflow-hidden hover:scale-105 transition focus:outline-none focus:ring-2 focus:ring-white/30";
 
@@ -655,9 +644,7 @@ const VIEWER_PARAM = "img";
   function currentShareUrl() {
     const filename = comics[currentIndex]?.name;
     if (!filename) return location.href;
-    // Copy/share the direct image link:
-    // https://eoguides.com/img/comics/<filename>
-    return imageUrl(filename);
+    return makeShareUrl(filename);
   }
 
   async function copyShareLink() {
