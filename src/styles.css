@@ -1,0 +1,256 @@
+
+:root{
+  --bg:#0b0b0f;
+  --panel:rgba(255,255,255,.06);
+  --panel2:rgba(255,255,255,.08);
+  --stroke:rgba(255,255,255,.12);
+  --text:rgba(255,255,255,.92);
+  --muted:rgba(255,255,255,.65);
+  --shadow:0 16px 50px rgba(0,0,0,.45);
+  --radius:18px;
+}
+
+*{box-sizing:border-box}
+html,body{height:100%}
+body{
+  margin:0;
+  background: radial-gradient(1200px 800px at 20% 10%, rgba(255,255,255,.06), transparent 60%),
+              radial-gradient(900px 700px at 90% 30%, rgba(0,170,255,.08), transparent 55%),
+              var(--bg);
+  color:var(--text);
+  font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+}
+
+h1,h2{
+  font-family: "Press Start 2P", system-ui, sans-serif;
+  letter-spacing: .5px;
+}
+h1{font-size: clamp(20px, 3vw, 34px); margin:0 0 10px}
+p{margin:0; color:var(--muted); line-height:1.6}
+
+.app{min-height:100dvh; display:flex; flex-direction:column}
+
+.topbar{
+  position:sticky; top:0; z-index:10;
+  backdrop-filter: blur(12px);
+  background: rgba(11,11,15,.55);
+  border-bottom:1px solid var(--stroke);
+  padding:14px 16px;
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:12px;
+}
+
+.brand{display:flex; align-items:center; gap:12px}
+.brandMark{
+  width:44px;height:44px;border-radius:14px;
+  background: linear-gradient(180deg, rgba(255,255,255,.14), rgba(255,255,255,.06));
+  border:1px solid var(--stroke);
+  display:grid; place-items:center;
+  font-family:"Press Start 2P", system-ui, sans-serif;
+  font-size:14px;
+  box-shadow: var(--shadow);
+}
+.brandName{font-family:"Press Start 2P"; font-size:12px}
+.brandSub{font-size:12px; color:var(--muted); margin-top:2px; text-transform:uppercase; letter-spacing:.12em}
+
+.topActions{display:flex; align-items:center; gap:10px; flex-wrap:wrap; justify-content:flex-end}
+
+.container{width:min(1100px, 100%); margin:0 auto; padding:18px 16px 30px}
+.hero{
+  padding:18px;
+  border:1px solid var(--stroke);
+  border-radius: var(--radius);
+  background: linear-gradient(180deg, rgba(255,255,255,.07), rgba(255,255,255,.04));
+  box-shadow: var(--shadow);
+  margin: 18px 0 18px;
+}
+
+.btn{
+  border:1px solid var(--stroke);
+  background: rgba(255,255,255,.06);
+  color: var(--text);
+  padding: 10px 12px;
+  border-radius: 14px;
+  font-family:"Press Start 2P", system-ui, sans-serif;
+  font-size: 11px;
+  cursor:pointer;
+  transition: transform .15s ease, background .15s ease, border-color .15s ease;
+}
+.btn:hover{transform: translateY(-1px); background: rgba(255,255,255,.09)}
+.btn:active{transform: translateY(0px)}
+.btn:disabled{opacity:.45; cursor:not-allowed}
+.btn.primary{background: rgba(255,255,255,.16); border-color: rgba(255,255,255,.22)}
+.linkBtn{
+  border:none; background:none; color:var(--muted);
+  cursor:pointer; padding:0; text-decoration:underline;
+}
+.linkBtn:hover{color:var(--text)}
+
+.grid{
+  display:grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+@media (min-width: 620px){
+  .grid{grid-template-columns: repeat(4, minmax(0, 1fr))}
+}
+@media (min-width: 980px){
+  .grid{grid-template-columns: repeat(6, minmax(0, 1fr))}
+}
+
+.thumb{
+  border:1px solid var(--stroke);
+  background: rgba(255,255,255,.04);
+  border-radius: 16px;
+  overflow:hidden;
+  padding:0;
+  cursor:pointer;
+  display:flex;
+  flex-direction:column;
+  transition: transform .18s ease, background .18s ease, border-color .18s ease;
+}
+.thumb:hover{transform: translateY(-2px); background: rgba(255,255,255,.06)}
+.thumb img{
+  width:100%;
+  height:auto;
+  display:block;
+}
+.thumbLabel{
+  padding:10px 10px 12px;
+  font-family:"Press Start 2P", system-ui, sans-serif;
+  font-size: 10px;
+  color: rgba(255,255,255,.78);
+}
+
+.footer{
+  margin-top:auto;
+  padding: 18px 16px;
+  border-top:1px solid var(--stroke);
+  color: var(--muted);
+  display:flex;
+  justify-content:center;
+  gap:10px;
+  flex-wrap:wrap;
+}
+.dot{opacity:.35}
+
+/* Overlay + Modal */
+.overlay{
+  position:fixed;
+  inset:0;
+  z-index:9999;
+  background: rgba(0,0,0,.86);
+  display:none;
+  align-items:center;
+  justify-content:center;
+  padding: 18px;
+  overflow:auto;
+  -webkit-overflow-scrolling: touch;
+}
+.overlay.isOpen{display:flex}
+
+.modal{
+  width:min(720px, 100%);
+  background: rgba(20,20,22,.92);
+  border: 1px solid var(--stroke);
+  border-radius: 22px;
+  box-shadow: var(--shadow);
+  padding: 18px;
+  max-height: 90dvh;
+  overflow:auto;
+  backdrop-filter: blur(12px);
+}
+.modalHeader .tag{
+  display:inline-block;
+  font-family:"Press Start 2P", system-ui, sans-serif;
+  font-size:10px;
+  padding: 8px 10px;
+  border-radius: 999px;
+  border:1px solid var(--stroke);
+  background: rgba(255,255,255,.06);
+  margin-bottom: 12px;
+}
+.modalHeader h2{font-size: 14px; line-height:1.6; margin: 0 0 8px}
+.modalBody p{margin:0 0 10px}
+.muted{opacity:.75}
+.modalActions{display:flex; justify-content:flex-end; gap:10px; margin-top: 12px}
+
+/* Reader */
+.reader{
+  width:min(980px, 100%);
+  max-height: 95dvh;
+  border-radius: 22px;
+  overflow:hidden;
+  border:1px solid var(--stroke);
+  background: rgba(15,15,18,.88);
+  box-shadow: var(--shadow);
+  backdrop-filter: blur(12px);
+  display:flex;
+  flex-direction:column;
+}
+
+.readerTop{
+  display:flex;
+  align-items:center;
+  gap:12px;
+  padding: 12px 12px;
+  border-bottom:1px solid var(--stroke);
+  background: rgba(255,255,255,.04);
+}
+
+.iconBtn{
+  width:40px; height:40px;
+  border-radius: 14px;
+  border:1px solid var(--stroke);
+  background: rgba(255,255,255,.06);
+  color: var(--text);
+  cursor:pointer;
+  font-size: 18px;
+}
+.iconBtn:hover{background: rgba(255,255,255,.09)}
+.readerMeta{flex:1; min-width: 0}
+.readerTitle{
+  font-family:"Press Start 2P", system-ui, sans-serif;
+  font-size: 11px;
+}
+.readerSub{font-size: 12px; color: var(--muted); margin-top:4px}
+.readerNav{display:flex; gap:10px; align-items:center}
+
+.readerBody{
+  flex:1;
+  overflow:auto;
+  -webkit-overflow-scrolling: touch;
+  display:flex;
+  align-items:flex-start;
+  justify-content:center;
+  padding: 14px;
+}
+.readerBody.animate img{
+  animation: fadeIn .18s ease;
+}
+@keyframes fadeIn{from{opacity:.4; transform: translateY(2px)} to{opacity:1; transform:none}}
+.comic{
+  width:min(920px, 100%);
+  height:auto;
+  display:block;
+  border-radius: 14px;
+  border:1px solid rgba(255,255,255,.10);
+  background: rgba(255,255,255,.04);
+}
+
+.readerBottom{
+  display:flex;
+  justify-content:space-between;
+  padding: 10px 12px;
+  border-top:1px solid var(--stroke);
+  background: rgba(255,255,255,.04);
+}
+
+@media (max-width: 520px){
+  .topActions .btn{padding: 10px 10px; font-size: 10px}
+  .readerNav{display:none}
+  .readerTop{gap:10px}
+  .brandText{display:none}
+}
