@@ -56,33 +56,10 @@
 <!-- ARCHIVE GRID -->
 <main class="max-w-6xl mx-auto px-4 py-8">
 
-  <!-- Tabs -->
-  <div class="flex items-center justify-between gap-3 mb-4">
-    <div class="inline-flex rounded-2xl bg-white/5 border border-white/10 p-1">
-      <button id="tabAll"
-              onclick="setTab('all')"
-              class="retro text-[10px] sm:text-xs px-4 py-2 rounded-xl transition">
-        All
-      </button>
-      <button id="tabNewest"
-              onclick="setTab('newest')"
-              class="retro text-[10px] sm:text-xs px-4 py-2 rounded-xl transition">
-        Newest
-      </button>
-    </div>
-
-    <div id="tabHint" class="text-xs opacity-70 hidden sm:block"></div>
-  </div>
-
-  <div id="status" class="text-center text-sm opacity-70 py-10">
-    Loading comics…
-  </div>
-
-  <div id="grid" class="hidden grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4"></div>
-
+  
   <!-- LINKS -->
-  <section class="mt-10 border-t border-white/10 pt-6">
-    <h2 class="retro text-[10px] sm:text-xs opacity-80 mb-4">Links</h2>
+  <section class="mb-6">
+    <h2 class="retro text-[10px] sm:text-xs opacity-80 mb-3">Links</h2>
 
     <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
       <a href="https://endless-online.com/"
@@ -115,7 +92,31 @@
     </div>
   </section>
 
-</main>
+<!-- Tabs -->
+  <div class="flex items-center justify-between gap-3 mb-4">
+    <div class="inline-flex rounded-2xl bg-white/5 border border-white/10 p-1">
+      <button id="tabAll"
+              onclick="setTab('all')"
+              class="retro text-[10px] sm:text-xs px-4 py-2 rounded-xl transition">
+        All
+      </button>
+      <button id="tabNewest"
+              onclick="setTab('newest')"
+              class="retro text-[10px] sm:text-xs px-4 py-2 rounded-xl transition">
+        Newest
+      </button>
+    </div>
+
+    <div id="tabHint" class="text-xs opacity-70 hidden sm:block"></div>
+  </div>
+
+  <div id="status" class="text-center text-sm opacity-70 py-10">
+    Loading comics…
+  </div>
+
+  <div id="grid" class="hidden grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4"></div>
+
+  </main>
 
 <!-- READER MODAL -->
 <div id="reader" class="fixed inset-0 bg-black/95 hidden z-50 flex flex-col">
